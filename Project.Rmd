@@ -1,0 +1,117 @@
+---
+title: "Human Activity Recognition"
+author: "Pablo Rodríguez"
+date: "Friday, June 12, 2015"
+output: html_document
+---
+
+# Introduction
+
+Human Activity Recognition - HAR - has emerged as a key research area in the last years and is gaining increasing attention by the pervasive computing research community (see picture below, that illustrates the increasing number of publications in HAR with wearable accelerometers), especially for the development of context-aware systems. There are many potential applications for HAR, like: elderly monitoring, life log systems for monitoring energy expenditure and for supporting weight-loss programs, and digital assistants for weight lifting exercises.
+
+Here we'll analyze a data set of various biometric variables.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3d7cWJT3V
+
+# Previous tasks
+
+```{r, message = FALSE, warning = FALSE}
+# Set the seed
+set.seed(28010)
+
+# Load required libraries
+library(caret)
+library(randomForest)
+library(dplyr)
+```
+
+# Data loading
+
+```{r}
+trainSet <- read.csv("pml-training.csv", row.names=1, na.strings = "")
+testSet <- read.csv("pml-testing.csv", row.names=1, na.strings = "NA")
+```
+
+# Data cleaning
+
+Remove problematic covariates:
+
+```{r}
+near0 <- nearZeroVar(trainSet, saveMetrics=TRUE)
+trainSet <- trainSet[ , !near0$nzv]
+testSet <- testSet[ , !near0$nzv]
+```
+
+Remove every column if contains at least one NA:
+
+```{r}
+trainSet <- trainSet[ , (colSums(is.na(trainSet)) == 0)]
+testSet <- testSet[ , (colSums(is.na(testSet)) == 0)]
+```
+
+Remove unnecessary columns:
+
+```{r}
+trainSet <- select(trainSet, -user_name, -raw_timestamp_part_1, -raw_timestamp_part_2, -cvtd_timestamp, -num_window )
+testSet <- select(testSet, -user_name, -raw_timestamp_part_1, -raw_timestamp_part_2, -cvtd_timestamp, -num_window, -problem_id )
+```
+
+Taking advantage of the large size of the train set, we'll create a validation set:
+
+```{r}
+trainIndices <- createDataPartition(y=trainSet$classe, p=0.7, list=FALSE)
+trainClean <- trainSet[trainIndices,]
+valClean <- trainSet[-trainIndices,]
+```
+
+# Training
+
+Perform the training; we'll use the random forest method. I recommend to set cache = TRUE for this chunk, because it is a slow one:
+
+```{r, cache = TRUE}
+rfFit <- train(classe ~ ., method = "rf", data = trainClean, importance = T, trControl = trainControl(method = "cv", number = 4))
+```
+
+Use validation set for getting the confusion matrix:
+
+```{r}
+validation_pred <- predict(rfFit, newdata=valClean)
+confusionMatrix(validation_pred,valClean$classe)
+```
+
+Overview the importance of each variable:
+
+```{r}
+imp <- varImp(rfFit)$importance
+varImpPlot(rfFit$finalModel, sort = TRUE, main = "Importance of the variables")
+```
+
+# Predict
+
+Use the model to predict for the testing set:
+
+```{r}
+testPred <- predict(rfFit, newdata=testSet)
+```
+
+So, the classification throws the following classes for the test observations:
+
+```{r}
+print(testPred)
+```
+
+## Export results
+
+We'll use the function provided by Coursera:
+
+```{r}
+pml_write_files  <- function(x) {
+    n <- length(x)
+    for (i in 1:n) {
+        filename <- paste0("problem_id", i, ".txt")
+        write.table(x[i], file=filename, quote=FALSE, row.names=FALSE,col.names=FALSE)
+    }
+}
+
+pml_write_files(testPred)
+```
